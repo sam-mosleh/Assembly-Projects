@@ -111,28 +111,41 @@ section	.text
 %macro print_greetings 0
   save_before_io
   call print_greetings_func
-  restore_before_io
+  restore_after_io
 %endmacro
 
   ;<---------------------------------------------------------------------->
 
 %macro get_three_inputs 3
-  ;save_before_io
+  save_before_io
   push %3
   push %2
   push %1
   call get_three_inputs_func
-  ;restore_before_io
+  restore_after_io
 %endmacro
 
   ;<---------------------------------------------------------------------->
 
-
 %macro print 1
+  save_before_io
   mov rdi, string_format
   mov rsi, %1
   mov rax, 0
   call printf
+  restore_after_io
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
+%macro print_double 1
+  save_before_io
+  mov rdi, double_format
+  movq xmm0, %1
+  mov rax, 1
+  call printf
+  print endl
+  restore_after_io
 %endmacro
 
   ;<---------------------------------------------------------------------->
@@ -187,6 +200,8 @@ get_three_inputs_func:
   entering
   sub rsp, 8
 
+  ;Get and validate first input (Double)
+  ;<------------------>
   mov rdi, double_format
   mov rsi, [rbp + 2*8]
   call scanf
@@ -200,6 +215,7 @@ get_three_inputs_func:
   mov qword[rbx], rax
 get_three_inputs_func_continue1:
 
+  ;Get and validate second input (Sign)
   ;<------------------>
 
   mov rdi, string_format
@@ -209,6 +225,7 @@ get_three_inputs_func_continue1:
   push qword[rbp + 3*8]
   call is_char_valid
 
+  ;Get and validate third input (Double)
   ;<------------------>
 
   mov rdi, double_format
@@ -224,50 +241,10 @@ get_three_inputs_func_continue1:
   mov qword[rbx], rax
 get_three_inputs_func_continue2:
 
-  ;<------------------>
-
-  ;mov rdi, string_format
-  ;mov rsi, [rbp + 3*8]
-  ;mov rax, 0
-  ;call printf
-
-  mov rax, [rbp + 2*8]
-  mov rdi, double_format
-  movq xmm0, qword[rax]
-  mov rax, 1
-  call printf
-
-  print endl
-
-  mov rax, [rbp + 4*8]
-  mov rdi, double_format
-  movq xmm0, qword[rax]
-  mov rax, 1
-  call printf
-
-  ;print endl
-
-  ;mov rax, [rbp + 2*8]
-  ;movq xmm0, qword[rax]
-  ;mov rax, [rbp + 4*8]
-  ;movq xmm1, qword[rax]
-  ;addpd xmm0, xmm1
-  ;movq qword[n], xmm0
-
-  ;print endl
-
-  ;mov rdi, double_format
-  ;movq xmm0, qword[n]
-  ;mov rax, 1
-  ;call printf
-  ;print endl
-
-
-  print [rbp + 3*8]
-  print endl
-
   leave
-  ret
+  ret 3*8
+
+  ;<---------------------------------------------------------------------->
 
 confirm_R_character:
   entering
@@ -290,13 +267,25 @@ confirm_R_character:
   leave
   ret
 
+  ;<---------------------------------------------------------------------->
+;;is_char_valid(*char)
 is_char_valid:
   entering
   mov rax, [rbp + 2*8]
   mov rbx, 0
-  cmp rbx, qword[rax + 1]
+  cmp bl, byte[rax + 1]
   jne exit
 
-  
+  mov bl, byte[rax]
+  cmp bl, byte[plusSign]
+  je is_char_valid_end
+  cmp bl, byte[minusSign]
+  je is_char_valid_end
+  cmp bl, byte[multSign]
+  je is_char_valid_end
+  cmp bl, byte[divSign]
+  je is_char_valid_end
+  jmp exit
+is_char_valid_end:
   leave
   ret 1*8
