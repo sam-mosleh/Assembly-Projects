@@ -5,6 +5,8 @@
 ;ld -o run -e _start Calculator.o
 ;./run
 
+BITS 64
+
 section .data
   string1 db '<Calculator program>', 0xa
   db 'USAGE:  Use R character to use the last result', 0xa
