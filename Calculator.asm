@@ -12,14 +12,15 @@ section .data
   db '        This program can compute +, *, -, /:', 0xa, 0
 
   string2 db 'Invalid input', 0xa, 0
+  string3 db 'Something wrong happend!', 0xa, 0
   integer_format db '%d', 0
   integer_format2 db '%d', 0xa, 0
   integer_format3 db '%d ', 0
   floatp_format db '%f', 0
   double_format db '%lf', 0
+  double_format2 db '= %lf', 0xa, 0
   string_format db '%s', 0
   char_format db '%c', 0
-  fn dq 1.2
   R_char db 'R'
 
   plusSign db '+'
@@ -30,7 +31,6 @@ section .data
   endl db 0xa, 0
 
   zero dq 0.0
-  forty_two dq 42.0
 
   SYS_EXIT equ 60
   STDIN equ 0
@@ -39,10 +39,8 @@ section .data
   SYS_WRITE equ 1
 
 section .bss
-  my_string resb 80
   last_result resq 1
   tmp_buffer resb 80
-  n resq 1
   a resq 1
   b resb 80
   c resq 1
@@ -85,6 +83,7 @@ section	.text
 %macro entering 0
   push rbp
   mov rbp, rsp
+  and rsp, -16                  ;To make TheStack pointer multiple of 64bits
 %endmacro
 
   ;<---------------------------------------------------------------------->
@@ -127,6 +126,25 @@ section	.text
 
   ;<---------------------------------------------------------------------->
 
+%macro calculate_result_by 3
+  save_before_io
+  push %3
+  push %2
+  push %1
+  call calculate_result_by_func
+  restore_after_io
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
+%macro print_the_result 0
+  save_before_io
+  call print_the_result_func
+  restore_after_io
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
 %macro print 1
   save_before_io
   mov rdi, string_format
@@ -149,15 +167,26 @@ section	.text
 %endmacro
 
   ;<---------------------------------------------------------------------->
+
+%macro initialize_last_result 0
+  push rax
+  mov rax, qword[zero]
+  mov qword[last_result], rax
+  pop rax
+%endmacro
+
+  ;<---------------------------------------------------------------------->
 main:
   entering
 
-  ; Last_Result = 42
-  mov rax, qword[forty_two]
-  mov qword[last_result], rax
-
+  initialize_last_result
   print_greetings
+
+infinity_while:
   get_three_inputs a, b, c
+  calculate_result_by a, b, c
+  print_the_result
+  jmp infinity_while
 
   leave
   ret
@@ -198,7 +227,6 @@ print_greetings_func:
 ;;get_three_input_func(*x, *y, *z) -> scanf 2 numbers and one character
 get_three_inputs_func:
   entering
-  sub rsp, 8
 
   ;Get and validate first input (Double)
   ;<------------------>
@@ -231,7 +259,6 @@ get_three_inputs_func_continue1:
   mov rdi, double_format
   mov rsi, [rbp + 4*8]
   call scanf
-  ;print_register rax
 
   cmp rax, 0
   jne get_three_inputs_func_continue2
@@ -289,3 +316,60 @@ is_char_valid:
 is_char_valid_end:
   leave
   ret 1*8
+
+  ;<---------------------------------------------------------------------->
+;;calculate_result_by_func(*float, *char, *float) -> decide which type of operation to use
+calculate_result_by_func:
+  entering
+
+  ;Load two doubles in XMM registers
+  ;<------------------>
+
+  mov rax, [rbp + 2*8]
+  movq xmm0, qword[rax]
+  mov rax, [rbp + 4*8]
+  movq xmm1, qword[rax]
+
+  ;Calculate result in the XMM0 (Double)
+  ;<------------------>
+
+  mov rax, [rbp + 3*8]
+  mov bl, byte[rax]
+  cmp bl, byte[plusSign]
+  jne calculate_result_by_func_continue1
+  addpd xmm0, xmm1
+  jmp calculate_result_by_func_end
+calculate_result_by_func_continue1:
+  cmp bl, byte[minusSign]
+  jne calculate_result_by_func_continue2
+  subpd xmm0, xmm1
+  jmp calculate_result_by_func_end
+calculate_result_by_func_continue2:
+  cmp bl, byte[multSign]
+  jne calculate_result_by_func_continue3
+  mulpd xmm0, xmm1
+  jmp calculate_result_by_func_end
+calculate_result_by_func_continue3:
+  cmp bl, byte[divSign]
+  jne calculate_result_by_func_continue4
+  divpd xmm0, xmm1
+  jmp calculate_result_by_func_end
+calculate_result_by_func_continue4:
+  print string3
+  jmp exit
+calculate_result_by_func_end:
+  movq  qword[last_result], xmm0
+
+  leave
+  ret 3*8
+
+  ;<---------------------------------------------------------------------->
+;;print_the_result_func() -> Prints last_result by the policy
+print_the_result_func:
+  entering
+  mov rdi, double_format2
+  movq xmm0, qword[last_result]
+  mov rax, 1
+  call printf
+  leave
+  ret
