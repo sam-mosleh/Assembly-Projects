@@ -17,6 +17,9 @@ section .data
   string2 db 'Invalid input', 0xa, 0
   string3 db 'Something wrong happend!', 0xa, 0
   string4 db 'Number of chars:', 0xa, 0
+  string5 db 'File has been found:', 0
+  string6 db 'Return value of the system call is:', 0
+  string7 db '<Creating Folder>', 0xa, 0
   integer_format db '%d', 0
   integer_format2 db '%d', 0xa, 0
   integer_format3 db '%d ', 0
@@ -28,8 +31,10 @@ section .data
 
   longSize equ 8
   shortSize equ 2
+  readBufferSize equ 800
 
-  folder_prefix db './images/', 0
+  images_path db './images/', 0
+  result_folder db './changed_images/', 0
   endl db 0xa, 0
 
   zero dq 0.0
@@ -40,13 +45,15 @@ section .data
   SYS_CLOSE equ 3
   SYS_EXIT equ 60
   SYS_GETDENTS equ 78
+  SYS_CHDIR equ 80
+  SYS_MKDIR equ 83
 
   O_RDONLY equ 0
   STDIN equ 0
   STDOUT equ 1
 
 section .bss
-  tmp_buffer resb 80
+  image resb readBufferSize
   file_descriptor resq 1
   files resb 800
 
@@ -172,16 +179,59 @@ section	.text
 %endmacro
 
   ;<---------------------------------------------------------------------->
-
+;; The length of files is in RAX
 %macro get_files_of_dir 2
   push r12
   save_before_io
+
   push %2
   push %1
   call get_files_of_dir_func
+
   restore_after_io
   mov rax, r12
   pop r12
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
+%macro make_directory 1
+  push rcx
+  push rdi
+  push rsi
+
+  push %1
+  call make_directory_func
+
+  pop rsi
+  pop rdi
+  pop rcx
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
+%macro goto_directory 1
+  push rcx
+  push rdi
+
+  mov rax, SYS_CHDIR
+  mov rdi, %1
+  syscall
+  ;print_register rax
+
+  pop rdi
+  pop rcx
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
+%macro process_image 3
+
+  push %3
+  push %2
+  push %1
+  call process_image_func
+
 %endmacro
 
   ;<---------------------------------------------------------------------->
@@ -190,7 +240,15 @@ main:
   entering
 
   print_greetings
-  get_files_of_dir folder_prefix, files
+
+  get_files_of_dir images_path, files
+  mov rbx, rax
+
+  make_directory result_folder
+
+  goto_directory images_path
+
+  process_image files, image, readBufferSize
 
   leave
   ret
@@ -234,6 +292,9 @@ get_files_of_dir_func:
   mov r10, 1000                 ;Local space size
   sub rsp, r10                  ;Local space created
 
+  ;Open the folder
+  ;<------------------>
+
   mov rax, SYS_OPEN
   mov rdi, qword[rbp + 2*8]
   mov rsi, O_RDONLY
@@ -243,27 +304,43 @@ get_files_of_dir_func:
 
   mov qword[file_descriptor], rax
 
+  ;Get folder items
+  ;<------------------>
+
   mov rax, SYS_GETDENTS
   mov rdi, qword[file_descriptor]
   mov rsi, rsp
   mov rdx, r10
   syscall
 
-  ;print_register rax
+  print_register rax
   mov r11, rax                  ; Size of read bytes in folder
+
+  ;Iterate over {linux_dirent} structs
+  ;<------------------>
 
   xor rcx, rcx
   mov rdx, rsp
 get_files_of_dir_while1:
   lea rdx, [rdx + 2*longSize + shortSize]
+
+  print string5
   print_return_number_of_chars rdx
 
+  ;Save file name
+  ;<------------------>
+  cmp byte[rdx], '.'
+  je get_files_of_dir_while1_dont_save
   call save_file_name
+get_files_of_dir_while1_dont_save:
+
+  ;Parse the struct which is in shape of {linux_dirent}
+  ;<------------------>
 
   inc rax                       ; Null terminated string size
   lea rbx, [rax + shortSize]
 
-  add rbx, 7
+  add rbx, 8
   and rbx, -8                   ; First multiple of 8
   sub rbx, shortSize            ; How much need to align
   add rdx, rbx                  ; Align
@@ -272,6 +349,14 @@ get_files_of_dir_while1:
   add rcx, rax
   cmp rcx, r11
   jb get_files_of_dir_while1
+
+
+  ;Close folder
+  ;<------------------>
+
+  mov rax, SYS_CLOSE
+  mov rdi, qword[file_descriptor]
+  syscall
 
   leave
   ret 2*8
@@ -298,3 +383,50 @@ save_file_name_mainLoop:
   pop rcx
   leave
   ret
+
+make_directory_func:
+  entering
+  print string7
+  mov rax, SYS_MKDIR
+  mov rdi, qword[rbp + 2*8]
+  mov rsi, 0q755
+  syscall
+  print string6
+  print_register rax
+  leave
+  ret 2*8
+
+process_image_func:
+  entering
+
+  ;Open image
+  ;<------------------>
+
+  mov rcx, qword[rbp + 2*8]
+
+  mov rax, SYS_OPEN
+  mov rdi, rcx
+  mov rsi, O_RDONLY
+  syscall
+  mov qword[file_descriptor], rax
+
+  ;Read image
+  ;<------------------>
+  mov rax, SYS_READ
+  mov rdi, qword[file_descriptor]
+  mov rsi, qword[rbp + 3*8]
+  mov rdx, qword[rbp + 4*8]
+  syscall
+
+  print image
+
+  ;Close folder
+  ;<------------------>
+
+  mov rax, SYS_CLOSE
+  mov rdi, qword[file_descriptor]
+  syscall
+  print_register rax
+
+  leave
+  ret 3*8
