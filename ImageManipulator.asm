@@ -29,7 +29,6 @@ section .data
   longSize equ 8
   shortSize equ 2
 
-  txt_files_postfix db './images/wow.txt', 0
   folder_prefix db './images/', 0
   endl db 0xa, 0
 
@@ -49,7 +48,7 @@ section .data
 section .bss
   tmp_buffer resb 80
   file_descriptor resq 1
-  reg_digits resb 80
+  files resb 800
 
 section	.text
   global main
@@ -174,11 +173,24 @@ section	.text
 
   ;<---------------------------------------------------------------------->
 
+%macro get_files_of_dir 2
+  push r12
+  save_before_io
+  push %2
+  push %1
+  call get_files_of_dir_func
+  restore_after_io
+  mov rax, r12
+  pop r12
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
 main:
   entering
 
   print_greetings
-  call get_files_of_dir
+  get_files_of_dir folder_prefix, files
 
   leave
   ret
@@ -215,29 +227,21 @@ print_greetings_func:
   leave
   ret
 
-get_files_of_dir:
+get_files_of_dir_func:
   entering
+  mov r12, 0
+  mov r9, qword[rbp + 3*8]
+  mov r10, 1000                 ;Local space size
+  sub rsp, r10                  ;Local space created
 
   mov rax, SYS_OPEN
-  ;mov rdi, txt_files_postfix
-  mov rdi, folder_prefix
+  mov rdi, qword[rbp + 2*8]
   mov rsi, O_RDONLY
   syscall
 
   ;print_register rax
 
   mov qword[file_descriptor], rax
-
-  mov r10, 1000                  ;Local space size
-  sub rsp, r10                  ;Local space created
-
-  ;xor rcx, rcx
-;loop1:
-  ;lea rbx, [rsp + rcx]
-  ;mov qword[rbx], 0
-  ;add rcx, 8
-  ;cmp rcx, r10
-  ;jb loop1
 
   mov rax, SYS_GETDENTS
   mov rdi, qword[file_descriptor]
@@ -246,55 +250,51 @@ get_files_of_dir:
   syscall
 
   ;print_register rax
-
-  ;print endl
-  ;print endl
-  ;print endl
-
-  ;mov rax, qword[rsp]
-  ;print_register rax
-  ;print endl
-
-  ;xor rax, rax
-  ;xor rcx, rcx
-;loop2:
-  ;lea rbx, [rsp + rcx]
-  ;mov al, byte[rbx]
-  ;;print_register rax
-  ;inc rcx
-  ;cmp rcx, r10
-  ;jb loop2
-
+  mov r11, rax                  ; Size of read bytes in folder
 
   xor rcx, rcx
   mov rdx, rsp
-  ;print_register rsp
-loop3:
-  ;print_register rdx
-
+get_files_of_dir_while1:
   lea rdx, [rdx + 2*longSize + shortSize]
-  ;print_register rbx
   print_return_number_of_chars rdx
-  ;print endl
-  ;print string4
-  ;print_register rax
 
-  add rax, 3
-  mov rbx, rax                  ; Null terminated string
+  call save_file_name
 
-  ;print_register rbx
+  inc rax                       ; Null terminated string size
+  lea rbx, [rax + shortSize]
+
   add rbx, 7
   and rbx, -8                   ; First multiple of 8
-  sub rbx, 2
-  ;sub rbx, rax                  ; How much need to align
+  sub rbx, shortSize            ; How much need to align
   add rdx, rbx                  ; Align
   print endl
-  ;print_register rbx
-  ;print_register rdx
-  ;print stars
-  inc rcx
-  cmp rcx, 6
-  jb loop3
+  lea rax, [rbx + 2*longSize + shortSize]
+  add rcx, rax
+  cmp rcx, r11
+  jb get_files_of_dir_while1
 
+  leave
+  ret 2*8
+
+save_file_name:
+  entering
+  push rcx
+  push rbx
+  push rax
+
+  mov rbx, 0
+  mov rcx, rdx
+  add rax, rdx
+save_file_name_mainLoop:
+  mov bl, byte[rcx]
+  mov byte[r9 + r12], bl
+  inc r12
+  inc rcx
+  cmp rcx, rax
+  jbe save_file_name_mainLoop
+
+  pop rax
+  pop rbx
+  pop rcx
   leave
   ret
