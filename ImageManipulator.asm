@@ -31,10 +31,11 @@ section .data
 
   longSize equ 8
   shortSize equ 2
-  readBufferSize equ 800
+  readBufferSize equ 800000
 
   images_path db './images/', 0
   result_folder db './changed_images/', 0
+  parent db '../', 0
   endl db 0xa, 0
 
   zero dq 0.0
@@ -53,6 +54,7 @@ section .data
   STDOUT equ 1
 
 section .bss
+  reg_digits resq 80
   image resb readBufferSize
   file_descriptor resq 1
   files resb 800
@@ -236,6 +238,16 @@ section	.text
 
   ;<---------------------------------------------------------------------->
 
+%macro save_file 2
+
+  push %2
+  push %1
+  call save_file_func
+
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+
 main:
   entering
 
@@ -249,6 +261,14 @@ main:
   goto_directory images_path
 
   process_image files, image, readBufferSize
+
+  mov r10, rax                  ; Save image buffer size
+
+  goto_directory parent
+
+  goto_directory result_folder
+
+  save_file files, image
 
   leave
   ret
@@ -403,6 +423,12 @@ process_image_func:
   ;<------------------>
 
   mov rcx, qword[rbp + 2*8]
+  mov r8, qword[rbp + 3*8]      ;r8 = image buffer pointer
+
+  ;add rcx, 11
+  ;add rcx, 14
+  print rcx
+  print endl
 
   mov rax, SYS_OPEN
   mov rdi, rcx
@@ -414,11 +440,38 @@ process_image_func:
   ;<------------------>
   mov rax, SYS_READ
   mov rdi, qword[file_descriptor]
-  mov rsi, qword[rbp + 3*8]
+  mov rsi, r8
   mov rdx, qword[rbp + 4*8]
   syscall
 
-  print image
+
+  xor r9, r9
+  xor r10, r10
+  xor r11, r11
+  xor r12, r12
+
+  mov r9d, dword[r8 + 2 + 4 + 4]              ; r9 = where image data starts
+  mov r10d, dword[r8 + 2 + 4 + 4 + 4 + 4]     ; r10 = width of image
+  mov r11d, dword[r8 + 2 + 4 + 4 + 4 + 4 + 4] ; r10 = height of image
+  mov r12d, dword[r8 + 2]                     ; r12 = size of the image
+
+  print_register r9
+  print_register r10
+  print_register r11
+
+  mov rcx, r9
+process_image_func_brighteningLoop:
+  movzx rax, byte[r8 + rcx]
+  sub rax, 10                   ; Make 10 degrees brighter
+  cmp rax, 0
+  jg process_image_func_brighteningLoop_dontTouchColor
+  xor rax, rax                  ; RAX = 0
+process_image_func_brighteningLoop_dontTouchColor:
+  mov byte[r8 + rcx], al
+  inc rcx
+  cmp rcx, r12
+  jb process_image_func_brighteningLoop
+
 
   ;Close folder
   ;<------------------>
@@ -426,7 +479,31 @@ process_image_func:
   mov rax, SYS_CLOSE
   mov rdi, qword[file_descriptor]
   syscall
-  print_register rax
+  ;print_register rax
+
+  mov rax, r12
 
   leave
   ret 3*8
+
+
+save_file_func:
+  entering
+
+  mov rax, SYS_OPEN
+  mov rdi, rcx
+  mov rsi, O_RDONLY
+  syscall
+  mov qword[file_descriptor], rax
+
+
+  ;Close folder
+  ;<------------------>
+
+  mov rax, SYS_CLOSE
+  mov rdi, qword[file_descriptor]
+  syscall
+  ;print_register rax
+
+  leave
+  ret 2*8
