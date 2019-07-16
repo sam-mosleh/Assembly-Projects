@@ -20,8 +20,9 @@ section .data
   string5 db 'File has been found:', 0
   string6 db 'Return value of the system call is:', 0
   string7 db '<Creating Folder>', 0xa, 0
+  string8 db 'Brightening started for ', 0
   integer_format db '%d', 0
-  integer_format2 db '%d', 0xa, 0
+  integer_format2 db '%lld', 0xa, 0
   integer_format3 db '%d ', 0
   floatp_format db '%f', 0
   double_format db '%lf', 0
@@ -46,15 +47,20 @@ section .data
   SYS_CLOSE equ 3
   SYS_EXIT equ 60
   SYS_GETDENTS equ 78
+  SYS_GETCWD equ 79
   SYS_CHDIR equ 80
   SYS_MKDIR equ 83
+  SYS_CREAT equ 85
 
   O_RDONLY equ 0
+  O_WRONLY equ 1
   STDIN equ 0
   STDOUT equ 1
 
+  bufferSize equ 800
+
 section .bss
-  reg_digits resq 80
+  buffer resb 800
   image resb readBufferSize
   file_descriptor resq 1
   files resb 800
@@ -101,7 +107,7 @@ section	.text
 
   ;<---------------------------------------------------------------------->
 
-%macro make_redzone 0
+%macro make_redZone 0
   and rsp, -16
   sub rsp, 128                  ;RedZone for leaf functions
 %endmacro
@@ -110,9 +116,8 @@ section	.text
 
 %macro print_register 1
   save_before_io
-  push %1
+  mov rsi, %1
   mov rdi, integer_format2
-  pop rsi
   mov rax, 0
   call printf
   restore_after_io
@@ -228,22 +233,60 @@ section	.text
   ;<---------------------------------------------------------------------->
 
 %macro process_image 3
+  push r12
+  save_before_io
 
   push %3
   push %2
   push %1
   call process_image_func
 
+  restore_after_io
+  mov rax, r12
+  pop r12
 %endmacro
 
   ;<---------------------------------------------------------------------->
 
-%macro save_file 2
+%macro save_file 3
+  push rax
+  push rcx
+  push rdx
+  push rdi
+  push rsi
+  push r11
 
+  push %3
   push %2
   push %1
   call save_file_func
 
+  pop r11
+  pop rsi
+  pop rdi
+  pop rdx
+  pop rcx
+  pop rax
+%endmacro
+
+  ;<---------------------------------------------------------------------->
+;;Approved!
+%macro show_current_working_directory 0
+  push rax
+  push rbx
+  push rcx
+  push rdi
+  push rsi
+  push r11
+
+  call show_current_working_directory_func
+
+  pop r11
+  pop rsi
+  pop rdi
+  pop rcx
+  pop rbx
+  pop rax
 %endmacro
 
   ;<---------------------------------------------------------------------->
@@ -259,16 +302,41 @@ main:
   make_directory result_folder
 
   goto_directory images_path
+  ;process_image files, image, readBufferSize
+  ;save_file files, image, r10
 
-  process_image files, image, readBufferSize
 
-  mov r10, rax                  ; Save image buffer size
+  mov rcx, files
+main_processLoop:
+  print stars
+
+  process_image rcx, image, readBufferSize
+  mov r12, rax                  ; Save image buffer size
 
   goto_directory parent
+  goto_directory result_folder  ; Go to ../result
 
-  goto_directory result_folder
+  save_file rcx, image, r12
 
-  save_file files, image
+  goto_directory parent
+  goto_directory images_path  ; Go to ../images
+
+  xor rax, rax
+main_processLoop_findNextFileName:
+  mov al, byte[rcx]
+  inc rcx
+  cmp al, 0
+  jne main_processLoop_findNextFileName
+
+  mov al, byte[rcx]
+  cmp al, 0
+  je main_processLoop_end
+
+  jmp main_processLoop
+
+main_processLoop_end:
+
+  ;show_current_working_directory
 
   leave
   ret
@@ -351,7 +419,7 @@ get_files_of_dir_while1:
   ;<------------------>
   cmp byte[rdx], '.'
   je get_files_of_dir_while1_dont_save
-  call save_file_name
+  call save_fileName
 get_files_of_dir_while1_dont_save:
 
   ;Parse the struct which is in shape of {linux_dirent}
@@ -381,7 +449,7 @@ get_files_of_dir_while1_dont_save:
   leave
   ret 2*8
 
-save_file_name:
+save_fileName:
   entering
   push rcx
   push rbx
@@ -390,13 +458,13 @@ save_file_name:
   mov rbx, 0
   mov rcx, rdx
   add rax, rdx
-save_file_name_mainLoop:
+save_fileName_mainLoop:
   mov bl, byte[rcx]
   mov byte[r9 + r12], bl
   inc r12
   inc rcx
   cmp rcx, rax
-  jbe save_file_name_mainLoop
+  jbe save_fileName_mainLoop
 
   pop rax
   pop rbx
@@ -425,8 +493,6 @@ process_image_func:
   mov rcx, qword[rbp + 2*8]
   mov r8, qword[rbp + 3*8]      ;r8 = image buffer pointer
 
-  ;add rcx, 11
-  ;add rcx, 14
   print rcx
   print endl
 
@@ -462,10 +528,10 @@ process_image_func:
   mov rcx, r9
 process_image_func_brighteningLoop:
   movzx rax, byte[r8 + rcx]
-  sub rax, 10                   ; Make 10 degrees brighter
-  cmp rax, 0
-  jg process_image_func_brighteningLoop_dontTouchColor
-  xor rax, rax                  ; RAX = 0
+  add rax, 100                   ; Make 10 degrees brighter
+  cmp rax, 255
+  jb process_image_func_brighteningLoop_dontTouchColor
+  mov rax, 255                  ; RAX = maximum brightness
 process_image_func_brighteningLoop_dontTouchColor:
   mov byte[r8 + rcx], al
   inc rcx
@@ -490,20 +556,47 @@ process_image_func_brighteningLoop_dontTouchColor:
 save_file_func:
   entering
 
-  mov rax, SYS_OPEN
-  mov rdi, rcx
-  mov rsi, O_RDONLY
+  ;Create file
+  ;<------------------>
+
+  mov rax, SYS_CREAT
+  mov rdi, qword[rbp + 2*8]
+  mov rsi, 0q755
   syscall
   mov qword[file_descriptor], rax
 
-
-  ;Close folder
+  ;Write file
   ;<------------------>
+  mov rax, SYS_WRITE
+  mov rdi, qword[file_descriptor]
+  mov rsi, qword[rbp + 3*8]
+  mov rdx, qword[rbp + 4*8]
+  syscall
+  ;print_register rax
 
+  ;Close file
+  ;<------------------>
   mov rax, SYS_CLOSE
   mov rdi, qword[file_descriptor]
   syscall
   ;print_register rax
 
   leave
-  ret 2*8
+  ret 3*8
+
+show_current_working_directory_func:
+  entering
+  sub rsp, 200                  ; Make local memory
+  mov rbx, rsp
+
+  make_redZone
+  mov rax, SYS_GETCWD
+  mov rdi, rbx
+  mov rsi, 200
+  syscall
+
+  print rbx
+  print endl
+
+  leave
+  ret
