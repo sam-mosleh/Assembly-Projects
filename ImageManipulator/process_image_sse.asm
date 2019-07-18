@@ -1,5 +1,9 @@
 section .data
-  added_constant equ 100
+align 16, db 0
+  oneHundred_array db 100, 100, 100, 100
+                   db 100, 100, 100, 100
+                   db 100, 100, 100, 100
+                   db 100, 100, 100, 100
 
   ;<---------------------------------------------------------------------->
 
@@ -48,28 +52,48 @@ process_image_func:
   xor r11, r11
   xor r12, r12
 
-  mov r9d, dword[r8 + 2 + 4 + 4]              ; r9  = where image data starts
+  mov r9d, dword[r8 + 2 + 4 + 4]              ; r9 = where image data starts
   mov r10d, dword[r8 + 2 + 4 + 4 + 4 + 4]     ; r10 = width of image
-  mov r11d, dword[r8 + 2 + 4 + 4 + 4 + 4 + 4] ; r11 = height of image
+  mov r11d, dword[r8 + 2 + 4 + 4 + 4 + 4 + 4] ; r10 = height of image
   mov r12d, dword[r8 + 2]                     ; r12 = size of the image
 
   print_register r9
   print_register r10
   print_register r11
-  print_register r12
+
+  ;First Phase: Try to brighten pixels until aligned position found
+  ;<------------------>
+  mov rbx, r9
+  add rbx, 15
+  and rbx, -16                  ; First occurance of multiple of 16Bytes
 
   mov rcx, r9
-process_image_func_brighteningLoop:
+process_image_func_firstBrighteningPhase:
+  cmp rcx, rbx
+  jge process_image_func_firstBrighteningPhase_end
+
   movzx rax, byte[r8 + rcx]
-  add rax, added_constant       ; Make 100 degrees brighter
+  add rax, 100
   cmp rax, 255
-  jb process_image_func_brighteningLoop_dontTouchColor
-  mov rax, 255                  ; RAX = maximum brightness
-process_image_func_brighteningLoop_dontTouchColor:
+  jb process_image_func_firstBrighteningPhase_dontTouchColor
+  mov rax, 255
+process_image_func_firstBrighteningPhase_dontTouchColor:
   mov byte[r8 + rcx], al
   inc rcx
+  jmp process_image_func_firstBrighteningPhase
+process_image_func_firstBrighteningPhase_end:
+
+  ;Second Phase: Using SSE registers for rest of pixels
+  ;<------------------>
+  movdqa xmm1, [oneHundred_array]
+process_image_func_secondBrighteningPhase:
+  movdqa xmm0, [r8 + rcx]
+  paddusb xmm0, xmm1            ; Make it brighten
+  ;psubusb xmm0, xmm1            ; Make it darker
+  movdqa [r8 + rcx], xmm0
+  add rcx, 16
   cmp rcx, r12
-  jb process_image_func_brighteningLoop
+  jb process_image_func_secondBrighteningPhase
 
   ;Close folder
   ;<------------------>

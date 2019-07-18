@@ -4,13 +4,14 @@
 ;nasm -f elf64 Calculator.asm
 ;ld -o run -e _start Calculator.o
 ;./run
-
+; MY_SUM=0; for i in $(seq 1 10); do TIME_RESULT="$(./run | tail -n 1)"; MY_SUM=$(( $MY_SUM + $TIME_RESULT )); echo "Added ${TIME_RESULT} and the result is ${MY_SUM}"; done
 BITS 64
 
 section .data
   stars db '********************', 0xa, 0
   string3 db 'Something wrong happend!', 0xa, 0
   string8 db 'Brightening started for ', 0
+  string9 db '<Timing>', 0xa, 0
   integer_format db '%d', 0
   integer_format2 db '%lld', 0xa, 0
   integer_format3 db '%d ', 0
@@ -49,11 +50,20 @@ section .data
 
   bufferSize equ 800
 
+align 16, db 0
+  arr db 250, 12, 13, 14, 15, 16, 17, 18
+  dq 0
+  ten db 10, 10, 10, 10, 10, 10, 10, 10
+  dq 0
+
 section .bss
+alignb 16
   buffer resb 800
   image resb readBufferSize
   file_descriptor resq 1
   files resb 800
+  start_time resq 1
+  stop_time resq 1
 
 section	.text
   global main
@@ -175,9 +185,27 @@ section	.text
 %include 'print_greetings.asm'
 %include 'show_working_directory.asm'
 %include 'goto_directory.asm'
-%include 'process_image.asm'
+;%include 'process_image.asm'
+%include 'process_image_sse.asm'
 
   ;<---------------------------------------------------------------------->
+
+%macro start_timing_saveTo 1
+  cpuid
+  rdtsc
+  mov dword[%1], eax
+  mov dword[%1 + 4], edx
+  ;print_register qword[start_time]
+%endmacro
+
+%macro stop_timing_saveTo 1
+  rdtscp
+  mov dword[%1], eax
+  mov dword[%1 + 4], edx
+  ;print_register qword[stop_time]
+  cpuid
+%endmacro
+
 
 main:
   entering
@@ -185,23 +213,28 @@ main:
   print_greetings
 
   get_files_of_dir images_path, files
-  mov rbx, rax
+  ;mov rbx, rax
 
   make_directory result_folder
-
   goto_directory images_path
-  ;process_image files, image, readBufferSize
-  ;save_file files, image, r10
 
+  ;mov dword[temp_num], 7
+  ;mov dword[temp_num + 4], 13   ;temp_num = 13 * 2^32 + 7
+  ;print_register qword[temp_num]
+
+  start_timing_saveTo start_time
 
   mov rcx, files
 main_processLoop:
   print stars
   print string8
+  print rcx
+  print endl
+
   process_image rcx, image, readBufferSize
   mov r12, rax                  ; Save image buffer size
 
-  goto_directory parent
+  goto_directory parent         ; 2000 Cycles long
   goto_directory result_folder  ; Go to ../result
 
   save_file rcx, image, r12
@@ -223,8 +256,23 @@ main_processLoop_findNextFileName:
   jmp main_processLoop
 
 main_processLoop_end:
-
   ;show_current_working_directory
+
+  stop_timing_saveTo stop_time
+
+  print string9
+
+  mov rax, qword[stop_time]
+  mov rbx, qword[start_time]
+  sub rax, rbx
+  print_register rax
+
+  ; movdqa xmm0, [arr]
+  ; movdqa xmm1, [ten]
+  ; paddusb xmm0, xmm1
+  ; movdqa [buffer], xmm0
+  ; movzx rax, byte[buffer]
+  ; print_register rax
 
   leave
   ret
