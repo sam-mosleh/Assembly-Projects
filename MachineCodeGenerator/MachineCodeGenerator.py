@@ -1,3 +1,12 @@
+class InstructionNotFound(Exception):
+    """Documentation for InstructionNotFound
+
+    """
+
+    def __init__(self, reason):
+        super().__init__(reason)
+
+
 class Instruction:
     """Documentation for Instruction
 
@@ -53,20 +62,50 @@ def parser(command):
     """ Documentation for parser """
     command_list = []
     command = command.strip().lower()
+    command += ' '
     first_space = command.find(' ')
     mnemonic = command[:first_space]
     arguments = command[first_space:]
     list_of_arguments = arguments.split(',')
     command_list.append(mnemonic.strip())
+
+    if arguments == ' ':
+        return command_list
+
     for arg in list_of_arguments:
         command_list.append(arg.strip())
     return command_list
+
+
+def catch_exception_of_instruction(instruction_list):
+    """ Documentation for catch_exception_of_instruction """
+    try:
+        branch_instruction(instruction_list)
+    except InstructionNotFound:
+        print('Error occured: No such instruction found: ' +
+              str(instruction_list))
+
+
+def branch_instruction(parsed_instruction):
+    """ Documentation for branch_instruction """
+    command = parsed_instruction[0]
+    if command == 'add':
+        add_instruction(parsed_instruction[1:])
+    else:
+        raise InstructionNotFound('No Such command')
+
+
+def add_instruction(args):
+    """ Documentation for add_instruction """
+    if len(args) != 2:
+        raise InstructionNotFound('ADD is a 2 argument instruction')
 
 
 def main():
     """ Documentation for main """
     assembly_command = input()
     parsed_code = parser(assembly_command)
+    catch_exception_of_instruction(parsed_code)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import unittest
 
-from MachineCodeGenerator import parser
+from MachineCodeGenerator import (InstructionNotFound, branch_instruction,
+                                  parser)
 
 
 class ParserTest(unittest.TestCase):
@@ -12,6 +13,31 @@ class ParserTest(unittest.TestCase):
 
     def test_capital(self):
         self.assertEqual(parser('  MOV RDX, 0x17  '), ['mov', 'rdx', '0x17'])
+
+    def test_one_word_commands(self):
+        self.assertEqual(parser('cpuid'), ['cpuid'])
+
+
+class BranchTest(unittest.TestCase):
+    """Documentation for BranchTest
+
+    """
+
+    def test_no_command(self):
+        with self.assertRaises(InstructionNotFound):
+            branch_instruction(parser('BadCommand'))
+
+
+class AddTest(unittest.TestCase):
+    """Documentation for AddTest
+
+    """
+
+    def test_invalid_argument_size(self):
+        with self.assertRaises(InstructionNotFound):
+            branch_instruction(parser('add rax, rbx, rcx'))
+        with self.assertRaises(InstructionNotFound):
+            branch_instruction(parser('add rax'))
 
 
 if __name__ == '__main__':
